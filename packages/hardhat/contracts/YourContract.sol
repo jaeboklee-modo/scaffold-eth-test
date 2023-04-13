@@ -4,6 +4,7 @@ pragma solidity >=0.8.0 <0.9.0;
 
 contract YourContract {
     enum OrderType {
+        NONE,
         DEPOSIT,
         WITHDRAW
     }
@@ -24,6 +25,8 @@ contract YourContract {
 
     function deposit(uint256 tokenAmount, uint256 iterationLimit) public {
         uint256 trancheAmount = expectedTrancheAmount(tokenAmount);
+
+        cancelOrder(msg.sender);
 
         (
             uint256 remainingTrancheAmount,
@@ -92,6 +95,8 @@ contract YourContract {
     function withdraw(uint256 trancheAmount, uint256 iterationLimit) public {
         uint256 tokenAmount = expectedTokenAmount(trancheAmount);
 
+        cancelOrder(msg.sender);
+
         (
             uint256 remainingTokenAmount,
             uint256 iterations
@@ -108,6 +113,21 @@ contract YourContract {
                 remainingTrancheAmount,
                 OrderType.WITHDRAW
             );
+        }
+    }
+
+    function cancelOrder(address user) public {
+        uint256 currentId = orders[HEAD].next;
+
+        while (currentId != NULL) {
+            Order memory order = orders[currentId];
+
+            if (order.user == user) {
+                _removeOrder(currentId);
+                break;
+            }
+
+            currentId = order.next;
         }
     }
 
@@ -183,12 +203,12 @@ contract YourContract {
 
         orders[orderId] = Order(orderId, amount, user, orderType, prevId, NULL);
 
-        if (prevId == NULL) {
-            orders[HEAD].next = orderId;
-        } else {
-            orders[prevId].next = orderId;
-        }
+        // [prevId] <-> [orderId]
+        orders[prevId].next = orderId;
+        // orders[orderId].prev = prevId;
 
+        // [orderId] <-> [HEAD]
+        // orders[orderId].next = HEAD;
         orders[HEAD].prev = orderId;
         // }
     }
@@ -196,17 +216,8 @@ contract YourContract {
     function _removeOrder(uint256 orderId) internal {
         Order storage order = orders[orderId];
 
-        if (order.prev == NULL) {
-            orders[HEAD].next = order.next;
-        } else {
-            orders[order.prev].next = order.next;
-        }
-
-        if (order.next == NULL) {
-            orders[HEAD].prev = order.prev;
-        } else {
-            orders[order.next].prev = order.prev;
-        }
+        orders[order.prev].next = order.next;
+        orders[order.next].prev = order.prev;
 
         delete orders[orderId];
     }
@@ -245,6 +256,52 @@ contract YourContract {
         }
 
         return count;
+    }
+
+    function currentOrderType() public view returns (OrderType) {
+        uint256 currentOrderId = orders[HEAD].next;
+
+        if (currentOrderId != NULL) {
+            return orders[currentOrderId].orderType;
+        } else {
+            return OrderType.NONE;
+        }
+    }
+
+    function getUserOrder(address user) public view returns (Order memory) {
+        uint256 currentOrderId = orders[HEAD].next;
+        Order memory order = Order(0, 0, address(0), OrderType.DEPOSIT, 0, 0);
+
+        while (currentOrderId != NULL) {
+            order = orders[currentOrderId];
+
+            if (order.user == user) {
+                return order;
+            }
+
+            currentOrderId = order.next;
+        }
+
+        return order;
+    }
+
+    function getUserOrder(
+        address user,
+        OrderType orderType
+    ) public view returns (Order memory) {
+        uint256 currentOrderId = orders[HEAD].next;
+
+        while (currentOrderId != NULL) {
+            Order memory order = orders[currentOrderId];
+
+            if (order.user == user && order.orderType == orderType) {
+                return order;
+            }
+
+            currentOrderId = order.next;
+        }
+
+        return Order(0, 0, address(0), OrderType.NONE, 0, 0);
     }
 
     function _getOrders() internal view returns (Order[] memory) {
